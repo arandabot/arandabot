@@ -38,17 +38,17 @@ def arandabot(settings=None):
 
     # 0.95 and 0.5 are magic numbers based on anecdotal observations
     # of slow the YouTube API is
-    quota_cost = int(0.95*len(yt.channel_to_upload_ids)*100*86400
-                     / (seconds_to_sleep + 0.5))
+    quota_cost = int(0.95*len(yt.channel_titles)*86400
+                     / (seconds_to_sleep + 0.5))*100
 
     # Handle expected YouTube API quota cost
     if quota_cost > 45000000:
         print("WARNING: 50,000,000 is your maximum YouTube API daily quota"
-              " limit\nYour estimated maximum cost is %s:" %
+              " limit\nYour estimated maximum cost is: %s" %
               "{:,}".format(quota_cost))
     else:
         print("50,000,000 is your maximum YouTube API daily quota limit\n"
-              "Your estimated maximum cost is %s:" % "{:,}".format(quota_cost))
+              "Your estimated maximum cost is: %s" % "{:,}".format(quota_cost))
 
     # Login in to reddit
     r = redditsubmissions.redditsubmissions(settings=reddit_settings)
@@ -58,7 +58,9 @@ def arandabot(settings=None):
     while script_settings.loop_forever or loop_number > 0:
         loop_number -= 1
 
-        yt.getNewestVideos()
+        number_yt_videos = yt.getNewestVideos()
+        if number_yt_videos or script_settings.heartbeat:
+            print("%d new YouTube videos found" % number_yt_videos)
 
         if yt.records:
             if script_settings.repost_protection:
@@ -72,5 +74,3 @@ def arandabot(settings=None):
 
         min_date = datetime.today()
         time.sleep(seconds_to_sleep)
-
-    input("Press return to finish script")
