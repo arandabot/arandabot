@@ -18,13 +18,13 @@ try:
     from oauth2client.file import Storage
     from oauth2client.tools import run_flow, argparser
 except ImportError:
-    print("Can't find google-api-python-client please insstall. \n"
+    print("Can't find google-api-python-client please install. \n"
           "Please use the provided requirements.txt. \n"
           "On Windows this would look something like: \n"
           "C:\Python27\Scripts>pip2.7.exe install -r requirements.txt")
 
 from collections import namedtuple
-from datetime import datetime
+from datetime import datetime, timedelta
 from httplib import ResponseNotReady
 
 __all__ = ('ytvideos')
@@ -143,8 +143,36 @@ class ytvideos(object):
                 pass
             else:
                 counter += 1
-
         return counter
+
+    def getVideoDescription(self, videoId):
+        counter = 0
+        while counter < 500:
+            counter += 1
+            try:
+                video_response = self.youtube.videos().list(
+                    id=videoId, part='snippet'
+                    ).execute()
+            except HttpError, e:
+                print("While getting video details from YouTube an HTTP "
+                      " %d occurred:\n%s" % (e.resp.status, e.content))
+                time.sleep(15)
+            except ResponseNotReady, e:
+                print("While getting video detail got HTTP ResponseNotReady"
+                      " from YouTube:\n%s" % e)
+                time.sleep(15)
+            except httplib2.ServerNotFoundError, e:
+                print("The Google API seems to not be available at the"
+                      " moment with error:\n%s" % e)
+                time.sleep(60)
+            except Exception, e:
+                print("Some unexpected exception when getting video "
+                      "details from YouTube, sleeping for 5 mins:\n%s" % e)
+                time.sleep(300)
+            else:
+                break
+
+        return video_response["items"][0]["snippet"]["description"]
 
     def getUserAccountNameDetails(self):
         '''Get user playlists defined in the settings file'''
@@ -320,10 +348,10 @@ class ytvideos(object):
                 title = snippet["title"]
                 description = snippet["description"]
                 date = snippet["publishedAt"]
-                published = datetime.strptime(date, "%Y-%m-%dT%H:%M:%S.000Z")
+                date = datetime.strptime(date, "%Y-%m-%dT%H:%M:%S.000Z")
 
                 # Check if the video is older than the filter date
-                if published <= self.min_date:
+                if date <= self.min_date:
                     continue
 
                 # Check if video has already been processed
@@ -346,9 +374,15 @@ class ytvideos(object):
                 desc_contain = self.set.description_must_contain
                 if desc_contain:
                     desc_contain = re.sub('[\W_]+', '', desc_contain).lower()
-                    check_title = re.sub('[\W_]+', '', description).lower()
-                    if desc_contain not in check_title:
-                        continue
+                    check_desc = re.sub('[\W_]+', '', description).lower()
+                    if desc_contain not in check_desc:
+                        # The description field is truncated, we need to do a
+                        # lookup on that video details to confirm it's really
+                        # Not in the description
+                        ful_desc = self.getVideoDescription(YTid)
+                        check_ful_desc = re.sub('[\W_]+', '', ful_desc).lower()
+                        if desc_contain not in check_ful_desc:
+                            continue
 
                 number_of_new_videos += 1
                 self.q.put([YTid, self.record(title=title, date=date)])
@@ -363,6 +397,10 @@ class ytvideos(object):
         # is expired (to be fixed)
         self.youtube = self.initilize_youtube(self.set)
         self.records = {}
+
+        # Get 30 days ago to feed to youtube query
+        check_after = datetime.utcnow() - timedelta(days=30)
+        check_after = check_after.isoformat("T") + "Z"
 
         # When subscription count is large it's important to batch all the
         # HTTP requests together as 1 http request. This will break if
@@ -380,7 +418,7 @@ class ytvideos(object):
             batch.add(
                 self.youtube.search().list(
                     part='snippet', maxResults=50, channelId=channel_id,
-                    type='video', order='date', safeSearch='none'
+                    type='video', safeSearch='none', publishedAfter=check_after
                     )
                 )
 
